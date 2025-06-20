@@ -31,9 +31,10 @@ class DatabaseManagementWindow(QtWidgets.QWidget):
 
     def load_commands(self):
         self.command_list.clear()
-        self.db_cursor.execute("SELECT prefix, value, command FROM actions")
-        for prefix, value, command in self.db_cursor.fetchall():
-            self.command_list.addItem(f"Prefix: {prefix}, Value: {value}, Command: {command}")
+        self.db_cursor.execute("SELECT prefix, value, command, open_window FROM actions")
+        for prefix, value, command, open_window in self.db_cursor.fetchall():
+            run_mode = 'Yes' if open_window else 'No'
+            self.command_list.addItem(f"Prefix: {prefix}, Value: {value}, Command: {command}, Window: {run_mode}")
 
     def add_command(self):
         prefix, ok_prefix = QtWidgets.QInputDialog.getText(self, "Add Command", "Enter prefix:")
@@ -48,7 +49,14 @@ class DatabaseManagementWindow(QtWidgets.QWidget):
         if not ok_command or not command:
             return
 
-        self.db_cursor.execute("INSERT INTO actions (prefix, value, command) VALUES (?, ?, ?)", (prefix, value, command))
+        # Ask whether to open a cmd window or run quietly
+        choice, ok_choice = QtWidgets.QInputDialog.getItem(self, "Add Command", "Run mode:", ["Open window", "Run quietly"], 0, False)
+        if not ok_choice:
+            open_window = 1
+        else:
+            open_window = 1 if choice == "Open window" else 0
+
+        self.db_cursor.execute("INSERT INTO actions (prefix, value, command, open_window) VALUES (?, ?, ?, ?)", (prefix, value, command, open_window))
         self.db_cursor.connection.commit()
         self.load_commands()
 
@@ -56,8 +64,16 @@ class DatabaseManagementWindow(QtWidgets.QWidget):
         selected_item = self.command_list.currentItem()
         if selected_item:
             command_text = selected_item.text()
-            prefix, value, command = [part.split(": ")[1] for part in command_text.split(", ")]
-            self.db_cursor.execute("DELETE FROM actions WHERE prefix = ? AND value = ? AND command = ?", (prefix, value, command))
+            parts = command_text.split(", ")
+            prefix = parts[0].split(": ")[1]
+            value = parts[1].split(": ")[1]
+            command = parts[2].split(": ")[1]
+            window_str = parts[3].split(": ")[1]
+            open_window = 1 if window_str == 'Yes' else 0
+            self.db_cursor.execute(
+                "DELETE FROM actions WHERE prefix = ? AND value = ? AND command = ? AND open_window = ?",
+                (prefix, value, command, open_window)
+            )
             self.db_cursor.connection.commit()
             self.load_commands()
 
@@ -110,6 +126,13 @@ class SimpleActionWindow(QtWidgets.QWidget):
         )
         """)
         self.db_connection.commit()
+
+        # Add open_window column if it doesn't exist
+        self.db_cursor.execute("PRAGMA table_info(actions)")
+        columns = [row[1] for row in self.db_cursor.fetchall()]
+        if 'open_window' not in columns:
+            self.db_cursor.execute("ALTER TABLE actions ADD COLUMN open_window INTEGER NOT NULL DEFAULT 1")
+            self.db_connection.commit()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -184,12 +207,17 @@ class SimpleActionWindow(QtWidgets.QWidget):
     def execute_action(self):
         input_text = self.input.text()
         prefix, value = self.parse_input(input_text)
-        self.db_cursor.execute("SELECT command FROM actions WHERE prefix = ? AND value = ?", (prefix, value))
+        self.db_cursor.execute("SELECT command, open_window FROM actions WHERE prefix = ? AND value = ?", (prefix, value))
         actions = self.db_cursor.fetchall()
-        for action in actions:
-            process = subprocess.Popen(action[0], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = process.communicate()
-            # Removed output display functionality
+        for cmd, open_window in actions:
+            if open_window:
+                # Open each command in a new cmd window and keep it open
+                subprocess.Popen(f'start cmd /k "{cmd}"', shell=True)
+            else:
+                # Run quietly without opening a window
+                subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        # Close the quick action window after launching commands
+        self.close()
 
     def parse_input(self, input_text):
         # Example parsing logic: split by space and return prefix and value

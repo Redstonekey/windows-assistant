@@ -3,6 +3,8 @@ actions.db
 node_modules/
 jspm_packages/
 bower_components/
+quick_action.spec
+assistant/
 
 # Build outputs
 dist/
