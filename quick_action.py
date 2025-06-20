@@ -295,7 +295,7 @@ class AppController(QtCore.QObject):
     def register_hotkey(self):
         import keyboard
         print("Registering hotkey: alt+space")
-        keyboard.add_hotkey('alt+space', self.emit_toggle)
+        keyboard.add_hotkey('alt+space', self.emit_toggle, suppress=True)
         keyboard.wait()
 
     def emit_toggle(self):
